@@ -61,6 +61,13 @@ A→B→C при невозможности прямого A→C.
 
 ## Как повторить проверки
 
+После объединения сборок библиотека, C++-тесты и расширение хакатона
+проверены из общей папки `build`: 62 Python-теста и 1 CTest прошли.
+Расширение использует единственный объект `src/network.cpp` общей библиотеки.
+Также проверены сборка планировщика из распакованного sdist и работа wheel
+в изоляции от установленного editable-пакета. Старые проверочные сборки удалены;
+контрольные суммы сценариев, результатов и сводных PDF остались прежними.
+
 ```bash
 python -m pip install ".[test,plot]"
 python -m pytest -q
@@ -69,19 +76,20 @@ cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
 for script in tutorials/*.py; do python "$script"; done
 python -m pip install build
-python -m build
+python -m build --outdir build/dist
 python tests/check_distribution.py
 ```
 
 Для локальной сборки без изолированного получения зависимостей заранее
 установите `scikit-build-core`, `pybind11` и `ninja`, затем используйте
-`python -m build --no-isolation`.
+`python -m build --no-isolation --outdir build/dist`.
 
 ```bash
-cmake -S . -B build-sanitize -DCMAKE_BUILD_TYPE=Debug \
+cmake -S . -B build/sanitize -DCMAKE_BUILD_TYPE=Debug \
+  -DGDS_BUILD_PYTHON=OFF -DGDS_BUILD_HACKATHON=OFF \
   -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-cmake --build build-sanitize --parallel 2
-ctest --test-dir build-sanitize --output-on-failure
+cmake --build build/sanitize --parallel 2
+ctest --test-dir build/sanitize --output-on-failure
 ```
 
 Автоматическая проверка GitHub задаётся в `.github/workflows/ci.yml`.

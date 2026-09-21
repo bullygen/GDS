@@ -19,10 +19,11 @@ test = ["pytest>=7"]
 Repository = "https://github.com/bullygen/GDS"
 
 [tool.scikit-build]
-cmake.args = ["-DGDS_BUILD_PYTHON=ON", "-DGDS_BUILD_TESTS=OFF"]
+cmake.args = ["-DGDS_BUILD_PYTHON=ON", "-DGDS_BUILD_TESTS=OFF", "-DGDS_BUILD_HACKATHON=OFF"]
 wheel.packages = ["python/gds", "python/gds_plot"]
-sdist.include = ["/CMakeLists.txt", "/cmake/*.in", "/include/gds/*.hpp", "/src/*.cpp", "/bindings/*.cpp", "/python/gds/*.py", "/python/gds_plot/*.py", "/tests/*.py", "/tests/*.cpp", "/tutorials/*.py", "/tutorials/*.md", "/docs/*.md", "/README.md", "/pyproject.toml", "/.gitignore", "/.github/workflows/*.yml", "/hackathon/HACKATON.md", "/hackathon/model/*.py", "/hackathon/data/*.json", "/hackathon/examples/*.json", "/hackathon/solver/*.py", "/hackathon/solver/*.cpp", "/hackathon/solver/*.txt", "/hackathon/solver/*.md", "/hackathon/solver/.gitignore"]
+sdist.include = ["/CMakeLists.txt", "/cmake/*.in", "/include/gds/*.hpp", "/src/*.cpp", "/bindings/*.cpp", "/python/gds/*.py", "/python/gds_plot/*.py", "/tests/*.py", "/tests/*.cpp", "/tutorials/*.py", "/tutorials/*.md", "/docs/*.md", "/README.md", "/pyproject.toml", "/.gitignore", "/.github/workflows/*.yml", "/hackathon/HACKATHON.md", "/hackathon/model/*.py", "/hackathon/data/*.json", "/hackathon/examples/*.json", "/hackathon/solver/*.py", "/hackathon/solver/*.cpp", "/hackathon/solver/*.txt", "/hackathon/solver/*.md", "/hackathon/solver/.gitignore"]
 sdist.exclude = ["prompt.md", "hackathon/prompt.md", "hackathon/solver/build/**", "hackathon/solver/outputs/**", "articles/**", "outputs/**", ".pytest_cache/**", ".venv/**", "build*/**", "dist/**", "MODEL_*/**", "UTILS_*/**", ".git/**", ".agents/**", ".codex/**", "**/__pycache__/**", "**/*.pdf", "**/*.so", "**/*.pyc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+cache_dir = "build/.pytest_cache"

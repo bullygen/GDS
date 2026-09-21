@@ -56,6 +56,28 @@ cmake --install build --prefix "$PWD/build/install"
 Внешний проект подключает `find_package(GDS CONFIG REQUIRED)` и цель `GDS::gds`.
 Для сборки ядра Python и pybind11 не нужны.
 
+## Структура сборки
+
+В репозитории используется одна папка `build/`. Общая библиотека и проверки
+ядра находятся непосредственно в ней, расширение планировщика — в
+`build/hackathon/solver/`, дистрибутивы — в `build/dist/`, кэш pytest — в
+`build/.pytest_cache/`. Дополнительная проверка санитайзерами при необходимости
+использует `build/sanitize/` и не требуется для обычного запуска.
+
+Для общей сборки ядра, тестов и планировщика хакатона:
+
+```bash
+.venv/bin/python hackathon/solver/run.py build
+ctest --test-dir build --output-on-failure
+.venv/bin/python -m pytest tests hackathon/solver/test_solver.py -q
+```
+
+Планировщик подключается к общей `GDS::gds`: исходник сети не компилируется
+отдельно для каждого компонента. Python-пакет библиотеки по-прежнему
+устанавливается через `pip install ".[test,plot]"`. Все файлы в `build/`
+восстанавливаются сборкой; результаты туториалов в `outputs/` и результаты
+планировщика в `hackathon/solver/outputs/` хранятся отдельно от сборочных файлов.
+
 ## Документация и примеры
 
 - [Сборка, установка и первая задача](docs/quick_start.md).

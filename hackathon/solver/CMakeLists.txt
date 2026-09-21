@@ -1,11 +1,16 @@
-cmake_minimum_required(VERSION 3.18)
-project(CosmoGDS LANGUAGES CXX)
-find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
-find_package(pybind11 CONFIG REQUIRED)
-pybind11_add_module(_native native.cpp ../../src/network.cpp)
-target_include_directories(_native PRIVATE ../../include)
-target_compile_features(_native PRIVATE cxx_std_17)
+if(NOT TARGET GDS::gds)
+  message(FATAL_ERROR "Configure the repository root with -DGDS_BUILD_HACKATHON=ON")
+endif()
+pybind11_add_module(_native native.cpp)
+target_link_libraries(_native PRIVATE GDS::gds)
 if(NOT MSVC)
   target_compile_options(_native PRIVATE -Wall -Wextra -Wpedantic)
 endif()
-set_target_properties(_native PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(_native PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+foreach(config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+  set_target_properties(_native PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_BINARY_DIR}")
+endforeach()

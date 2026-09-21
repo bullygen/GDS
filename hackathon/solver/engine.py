@@ -34,7 +34,7 @@ class Network:
         try:
             from ._native import CompiledNetwork
         except ImportError as exc:
-            raise RuntimeError("Сначала выполните python hackathon/solver/build.py") from exc
+            raise RuntimeError("Сначала выполните python hackathon/solver/run.py build") from exc
         validate(session.env.s)
         self.jobs = list(session.env.jobs.values())
         self.start = session.env.k

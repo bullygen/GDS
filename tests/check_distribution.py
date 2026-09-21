@@ -15,9 +15,9 @@ def verify(names):
 
 def main():
     """Проверяет оба вида пакета после выполнения python -m build."""
-    source_archives = list(Path("dist").glob("*.tar.gz"))
-    wheels = list(Path("dist").glob("*.whl"))
-    assert source_archives and wheels, "Сначала выполните python -m build."
+    source_archives = list(Path("build/dist").glob("*.tar.gz"))
+    wheels = list(Path("build/dist").glob("*.whl"))
+    assert source_archives and wheels, "Сначала выполните python -m build --outdir build/dist."
     for filename in source_archives:
         with tarfile.open(filename) as archive:
             names = archive.getnames()

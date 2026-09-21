@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install build
-      - run: python -m build
+      - run: python -m build --outdir build/dist
       - run: python tests/check_distribution.py
   hackathon:
     name: Планировщик Cosmo B и физика C++
@@ -49,4 +49,5 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r hackathon/solver/requirements.txt
       - run: python hackathon/solver/run.py build
+      - run: ctest --test-dir build --output-on-failure
       - run: python -m pytest hackathon/solver/test_solver.py -q
