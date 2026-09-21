@@ -1,0 +1,28 @@
+# Сборка двоичного расширения из тех же исходников, что и самостоятельная библиотека.
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "asc-gds"
+version = "0.1.0"
+description = "Библиотека планирования GDS с ядром C++ и интерфейсом Python"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "И. И. Булыгин"}]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.7"]
+test = ["pytest>=7"]
+
+[project.urls]
+Repository = "https://github.com/bullygen/GDS"
+
+[tool.scikit-build]
+cmake.args = ["-DGDS_BUILD_PYTHON=ON", "-DGDS_BUILD_TESTS=OFF"]
+wheel.packages = ["python/gds", "python/gds_plot"]
+sdist.include = ["/CMakeLists.txt", "/cmake/*.in", "/include/gds/*.hpp", "/src/*.cpp", "/bindings/*.cpp", "/python/gds/*.py", "/python/gds_plot/*.py", "/tests/*.py", "/tests/*.cpp", "/tutorials/*.py", "/tutorials/*.md", "/docs/*.md", "/README.md", "/pyproject.toml", "/.gitignore", "/.github/workflows/*.yml"]
+sdist.exclude = ["prompt.md", "articles/**", "outputs/**", ".pytest_cache/**", ".venv/**", "build*/**", "dist/**", "MODEL_*/**", "UTILS_*/**", ".git/**", ".agents/**", ".codex/**", "**/__pycache__/**", "**/*.pdf", "**/*.so", "**/*.pyc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,4 @@
+# Подключение установленной цели GDS::gds в пользовательский проект.
+@PACKAGE_INIT@
+include("${CMAKE_CURRENT_LIST_DIR}/GDSTargets.cmake")
+check_required_components(GDS)

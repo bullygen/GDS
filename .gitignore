@@ -1,0 +1,30 @@
+# Исходное задание и локальные исследовательские материалы не публикуются.
+/prompt.md
+/articles/
+*.pdf
+/.agents/
+/.codex/
+# Окружения, двоичные сборки, промежуточные данные и изображения примеров.
+/.venv*/
+/venv/
+/build*/
+/dist/
+/outputs/
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.dll
+*.dylib
+*.a
+*.o
+*.obj
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+*.gdsw
+*.log
