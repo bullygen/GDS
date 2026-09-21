@@ -1,4 +1,9 @@
 """Внешние длительности: прямой расчёт действия, предикат перехода и точная проверка."""
+from pathlib import Path  # Задаём отдельный каталог рисунков данного примера.
+import matplotlib  # Подключаем средство построения графиков.
+matplotlib.use("Agg")  # Сохраняем рисунки без необходимости графического рабочего стола.
+import matplotlib.pyplot as plt  # Сохраняем и закрываем созданные рисунки.
+import gds_plot  # Отделяем визуализацию от вычислительного ядра C++.
 import gds  # C++ отвечает за квантование, кэш, последовательность и проверку.
 
 
@@ -43,3 +48,14 @@ assert schedule.feasible  # Используем только подтвержд
 for segment in schedule.segments:  # Просматриваем действия, переходы и свободные интервалы.
     print(segment.kind, segment.begin, segment.end, segment.metadata.certificate)  # Физическая длительность и сертификат доступны явно.
 print("Вызовы и попадания в кэш:", compiled.cache_statistics())  # Проверяем повторное использование одинаковых запросов.
+
+output = Path("outputs") / Path(__file__).stem  # Разделяем результаты разных туториалов по каталогам.
+output.mkdir(parents=True, exist_ok=True)  # Создаём каталог для двух рисунков.
+axes = gds_plot.gantt(schedule, problem, show_labels=False)  # Отключаем текст внутри временных полос отдельным параметром.
+axes.figure.tight_layout()  # Размещаем подписи осей и названия ресурсов.
+axes.figure.savefig(output / "schedule.png", dpi=150)  # Сохраняем диаграмму расписания.
+plt.close(axes.figure)  # Освобождаем память после сохранения расписания.
+resource_axes = gds_plot.resource_traces(schedule, slot_seconds=problem.slot_seconds, problem=problem)  # Рисуем все ресурсы и величины друг под другом.
+resource_axes[0].figure.tight_layout()  # Разделяем подписи соседних ресурсных графиков.
+resource_axes[0].figure.savefig(output / "resources.png", dpi=150)  # Сохраняем общий рисунок с отдельными графиками.
+plt.close(resource_axes[0].figure)  # Закрываем рисунок ресурсных рядов.

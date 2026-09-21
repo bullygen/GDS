@@ -1,11 +1,13 @@
 """Необязательные графики проверенных расписаний; вычисления выполняет пакет gds."""
 
 
-def gantt(schedule, problem, ax=None):
+def gantt(schedule, problem, ax=None, *, show_labels=True):
     """Строит диаграмму Гантта в секундах и возвращает оси Matplotlib.
 
     Для отклонённого плана диаграмма показывает только диагностические полосы,
     а заголовок явно указывает отсутствие подтверждённого расписания.
+    Параметр show_labels=False отключает названия действий внутри полос,
+    сохраняя подписи осей и названия ресурсов.
     """
     import matplotlib.pyplot as plt
 
@@ -17,7 +19,7 @@ def gantt(schedule, problem, ax=None):
             continue
         ax.broken_barh([(segment.begin, segment.end - segment.begin)],
                        (segment.resource - 0.35, 0.7), facecolors=colors[segment.kind])
-        if segment.kind == "action":
+        if show_labels and segment.kind == "action":
             ax.text(segment.begin, segment.resource, problem.actions[segment.action].name,
                     va="center", fontsize=8)
     ax.set_yticks(range(len(problem.resources)), [r.name for r in problem.resources])
@@ -27,24 +29,53 @@ def gantt(schedule, problem, ax=None):
     return ax
 
 
-def resource_traces(schedule, slot_seconds=1.0, resource=0, ax=None):
-    """Показывает норму момента и память на отдельных осях с явными единицами."""
+def resource_traces(schedule, slot_seconds=1.0, resource=None, axes=None, *, problem=None):
+    """Строит вертикальные графики загрузки, памяти, нормы момента и запаса.
+
+    По умолчанию выводятся все ресурсы расписания, для каждого — четыре
+    отдельные области рисования. Параметр resource выбирает один индекс.
+    Возвращается плоский кортеж осей в порядке ресурсов и перечисленных величин.
+    Готовые оси можно передать через axes; их число должно совпадать с числом
+    графиков. problem необязателен и используется для названий ресурсов.
+    """
     import math
     import matplotlib.pyplot as plt
 
-    if ax is None:
-        _, ax = plt.subplots(figsize=(9, 4))
-    trace = next(item for item in schedule.traces if item.resource == resource)
-    times = [(slot + 1) * slot_seconds for slot in range(len(trace.memory))]
-    ax.step(times, trace.memory, where="post", label="Занятая память", color="tab:blue")
-    ax.set_ylabel("Память, единицы постановки", color="tab:blue")
-    momentum_axis = ax.twinx()
-    momentum_axis.step(times, [math.hypot(*v) for v in trace.momentum], where="post",
-                       label="Норма момента", color="tab:orange")
-    momentum_axis.set_ylabel("Момент, единицы постановки", color="tab:orange")
-    ax.set_xlabel("Время, с")
-    ax.set_title("Ресурсы выбранного аппарата")
-    return ax, momentum_axis
+    if not math.isfinite(slot_seconds) or slot_seconds <= 0:
+        raise ValueError("Шаг времени должен быть конечным и положительным.")
+    traces = [trace for trace in schedule.traces if resource is None or trace.resource == resource]
+    if not traces:
+        raise ValueError("В расписании нет выбранных ресурсных рядов.")
+    count = 4 * len(traces)
+    if axes is None:
+        _, rows = plt.subplots(count, 1, figsize=(10, 2.5 * count), sharex=True, squeeze=False)
+        axes = tuple(rows[:, 0])
+    else:
+        axes = tuple(axes)
+        if len(axes) != count or len({id(axis) for axis in axes}) != count:
+            raise ValueError(f"Требуются {count} различных осей для отдельных графиков.")
+    resources = problem.resources if problem is not None else None
+    for index, trace in enumerate(traces):
+        name = resources[trace.resource].name if resources is not None else f"Ресурс {trace.resource}"
+        quantities = [
+            ("Загрузка", "Единицы ёмкости", trace.load, "tab:blue", 0),
+            ("Занятая память", "Единицы памяти", trace.memory, "tab:green", 1),
+            ("Норма момента", "Единицы момента", [math.hypot(*v) for v in trace.momentum], "tab:orange", 1),
+            ("Накопительный запас", "Единицы запаса", trace.level, "tab:purple", 1),
+        ]
+        for offset, (title, unit, values, color, time_offset) in enumerate(quantities):
+            axis = axes[4 * index + offset]
+            times = [(slot + time_offset) * slot_seconds for slot in range(len(values))]
+            # Загрузка относится ко всему слоту; завершаем её ступень правой границей.
+            if time_offset == 0 and values:
+                times.append(len(values) * slot_seconds)
+                values = [*values, values[-1]]
+            axis.step(times, values, where="post", color=color)
+            axis.set_title(f"{name}: {title}")
+            axis.set_ylabel(unit)
+            axis.set_xlabel("Время, с")
+            axis.grid(alpha=0.25)
+    return axes
 
 
 def pareto(population, x=0, y=2, ax=None):

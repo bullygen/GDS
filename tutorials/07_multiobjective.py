@@ -1,4 +1,9 @@
 """Многокритериальный поиск: скрещивание расписаний GDS, GDE3 и граница Парето."""
+from pathlib import Path  # Задаём отдельный каталог рисунков данного примера.
+import matplotlib  # Подключаем средство построения графиков.
+matplotlib.use("Agg")  # Сохраняем рисунки без необходимости графического рабочего стола.
+import matplotlib.pyplot as plt  # Сохраняем и закрываем созданные рисунки.
+import gds_plot  # Отделяем визуализацию от вычислительного ядра C++.
 import gds  # Генетические операторы и ранжирование реализованы на C++.
 
 problem = gds.Problem(5)  # Создаём заведомо тесный горизонт для необязательных наблюдений.
@@ -24,3 +29,17 @@ for solver in [gds.genetic, gds.gde3]:  # Сравниваем два разны
     for schedule in result.pareto_front:  # Просматриваем приближение границы Парето.
         print(schedule.feasible, schedule.objectives, schedule.assignment)  # Не смешиваем допустимость с качеством критериев.
         assert not any(gds.dominates(other, schedule) for other in result.population)  # Проверяем недоминируемость внутри популяции.
+
+    candidates = [member for member in result.pareto_front if member.feasible]  # Оставляем подтверждённые планы текущего метода.
+    assert candidates, "Метод не нашёл допустимого расписания."  # Не выдаём нарушенный план за итоговое расписание.
+    schedule = min(candidates, key=lambda member: member.objectives)  # Для рисунка выбираем один воспроизводимый компромисс.
+    output = Path("outputs") / Path(__file__).stem / solver.__name__  # Разделяем результаты разных туториалов по каталогам.
+    output.mkdir(parents=True, exist_ok=True)  # Создаём каталог для двух рисунков.
+    axes = gds_plot.gantt(schedule, problem, show_labels=False)  # Отключаем текст внутри временных полос отдельным параметром.
+    axes.figure.tight_layout()  # Размещаем подписи осей и названия ресурсов.
+    axes.figure.savefig(output / "schedule.png", dpi=150)  # Сохраняем диаграмму расписания.
+    plt.close(axes.figure)  # Освобождаем память после сохранения расписания.
+    resource_axes = gds_plot.resource_traces(schedule, slot_seconds=problem.slot_seconds, problem=problem)  # Рисуем все ресурсы и величины друг под другом.
+    resource_axes[0].figure.tight_layout()  # Разделяем подписи соседних ресурсных графиков.
+    resource_axes[0].figure.savefig(output / "resources.png", dpi=150)  # Сохраняем общий рисунок с отдельными графиками.
+    plt.close(resource_axes[0].figure)  # Закрываем рисунок ресурсных рядов.

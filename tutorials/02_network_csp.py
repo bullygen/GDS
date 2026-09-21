@@ -1,4 +1,8 @@
 """Низкоуровневая сеть: ограничения, шаги динамики, ферзи и сохранение состояния."""
+import matplotlib  # Подключаем средство построения графиков.
+matplotlib.use("Agg")  # Сохраняем рисунки без необходимости графического рабочего стола.
+import matplotlib.pyplot as plt  # Сохраняем и закрываем созданные рисунки.
+import gds_plot  # Отделяем визуализацию от вычислительного ядра C++.
 from pathlib import Path  # Используем переносимое представление пути к выходному файлу.
 import gds  # Все дальнейшие действия сети исполняются внутри C++.
 
@@ -21,3 +25,21 @@ queens = gds.GDSNetwork.make_n_queens(8)  # Строим классическу�
 assert queens.run(100000).satisfied  # Проверяем решение этой независимой задачи ограничений.
 coloring = gds.GDSNetwork.make_graph_3_coloring(3, [(0, 1), (1, 2), (2, 0)])  # Строим раскраску треугольника.
 assert coloring.run(1000).satisfied  # Три вершины должны получить три разных цвета.
+
+# Переходим от абстрактной CSP к временной задаче, чтобы показать настоящие ресурсные ряды.
+problem = gds.make_parallel_jobs(2, 6, [2, 1, 2])  # Задаём три работы и два временных ресурса.
+compiled = problem.compile()  # Строим отображение значений сети в размещения.
+scheduling_network = compiled.make_network()  # Используем тот же низкоуровневый интерфейс GDS.
+schedule = compiled.evaluate(scheduling_network.run(10000).assignment)  # Декодируем и независимо проверяем решение сети.
+assert schedule.feasible  # Строим рисунки подтверждённого временного плана.
+
+output = Path("outputs") / Path(__file__).stem  # Разделяем результаты разных туториалов по каталогам.
+output.mkdir(parents=True, exist_ok=True)  # Создаём каталог для двух рисунков.
+axes = gds_plot.gantt(schedule, problem, show_labels=False)  # Отключаем текст внутри временных полос отдельным параметром.
+axes.figure.tight_layout()  # Размещаем подписи осей и названия ресурсов.
+axes.figure.savefig(output / "schedule.png", dpi=150)  # Сохраняем диаграмму расписания.
+plt.close(axes.figure)  # Освобождаем память после сохранения расписания.
+resource_axes = gds_plot.resource_traces(schedule, slot_seconds=problem.slot_seconds, problem=problem)  # Рисуем все ресурсы и величины друг под другом.
+resource_axes[0].figure.tight_layout()  # Разделяем подписи соседних ресурсных графиков.
+resource_axes[0].figure.savefig(output / "resources.png", dpi=150)  # Сохраняем общий рисунок с отдельными графиками.
+plt.close(resource_axes[0].figure)  # Закрываем рисунок ресурсных рядов.

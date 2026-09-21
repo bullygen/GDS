@@ -1,4 +1,9 @@
 """Парная пригодность, предшествование и непрерывный блок научных действий."""
+from pathlib import Path  # Задаём отдельный каталог рисунков данного примера.
+import matplotlib  # Подключаем средство построения графиков.
+matplotlib.use("Agg")  # Сохраняем рисунки без необходимости графического рабочего стола.
+import matplotlib.pyplot as plt  # Сохраняем и закрываем созданные рисунки.
+import gds_plot  # Отделяем визуализацию от вычислительного ядра C++.
 import math  # Нужна только демонстрационная формула внешнего предпочтения.
 import gds  # Компиляция функции в веса и запреты остаётся в C++.
 
@@ -28,3 +33,14 @@ if not schedule.feasible:  # Частичный жадный выбор иног
     schedule = gds.min_conflicts(compiled, schedule.assignment)  # Исправляем наиболее конфликтные действия.
 assert schedule.feasible  # Убеждаемся в выполнении всех условий.
 print([(p.action, p.start, p.end) for p in schedule.placements])  # Выводим порядок и интервалы действий.
+
+output = Path("outputs") / Path(__file__).stem  # Разделяем результаты разных туториалов по каталогам.
+output.mkdir(parents=True, exist_ok=True)  # Создаём каталог для двух рисунков.
+axes = gds_plot.gantt(schedule, problem, show_labels=False)  # Отключаем текст внутри временных полос отдельным параметром.
+axes.figure.tight_layout()  # Размещаем подписи осей и названия ресурсов.
+axes.figure.savefig(output / "schedule.png", dpi=150)  # Сохраняем диаграмму расписания.
+plt.close(axes.figure)  # Освобождаем память после сохранения расписания.
+resource_axes = gds_plot.resource_traces(schedule, slot_seconds=problem.slot_seconds, problem=problem)  # Рисуем все ресурсы и величины друг под другом.
+resource_axes[0].figure.tight_layout()  # Разделяем подписи соседних ресурсных графиков.
+resource_axes[0].figure.savefig(output / "resources.png", dpi=150)  # Сохраняем общий рисунок с отдельными графиками.
+plt.close(resource_axes[0].figure)  # Закрываем рисунок ресурсных рядов.

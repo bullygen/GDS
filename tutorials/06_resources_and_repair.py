@@ -1,5 +1,10 @@
 """Память, векторный момент, энергия, квота и исправление исходного конфликтного плана."""
-import gds  # Все проверки ресурсов и перестановки выполняет C++.
+from pathlib import Path  # Результаты сохраняем в отдельный локальный каталог.
+import matplotlib  # Выбираем режим без графического рабочего стола.
+matplotlib.use("Agg")  # Пример одинаково исполняется локально и в автоматических проверках.
+import matplotlib.pyplot as plt  # Получаем операции сохранения и закрытия рисунков.
+import gds  # Используем C++-библиотеку для поиска.
+import gds_plot  # Используем независимый Python-пакет только для рисования.
 
 problem = gds.Problem(8)  # Задаём восемь секундных слотов.
 satellite = gds.Resource()  # Создаём ресурс аппарата с накопительными величинами.
@@ -28,3 +33,14 @@ print("Память:", schedule.traces[0].memory)  # Выводим память
 print("Энергия:", schedule.traces[0].level)  # Выводим оставшийся накопительный ресурс.
 print("Момент:", schedule.traces[0].momentum)  # Выводим полный вектор, сохраняя знаки компонент.
 print("Уменьшающие момент:", gds.find_reducers([[3, 0, 0], [-2, 0, 0], [1, 0, 0]])[0])  # Применяем критерий из статьи 2007 года.
+
+output = Path("outputs") / Path(__file__).stem  # Разделяем результаты разных туториалов по каталогам.
+output.mkdir(parents=True, exist_ok=True)  # Создаём каталог для двух рисунков.
+axes = gds_plot.gantt(schedule, problem, show_labels=False)  # Отключаем текст внутри временных полос отдельным параметром.
+axes.figure.tight_layout()  # Размещаем подписи осей и названия ресурсов.
+axes.figure.savefig(output / "schedule.png", dpi=150)  # Сохраняем диаграмму расписания.
+plt.close(axes.figure)  # Освобождаем память после сохранения расписания.
+resource_axes = gds_plot.resource_traces(schedule, slot_seconds=problem.slot_seconds, problem=problem)  # Рисуем все ресурсы и величины друг под другом.
+resource_axes[0].figure.tight_layout()  # Разделяем подписи соседних ресурсных графиков.
+resource_axes[0].figure.savefig(output / "resources.png", dpi=150)  # Сохраняем общий рисунок с отдельными графиками.
+plt.close(resource_axes[0].figure)  # Закрываем рисунок ресурсных рядов.
