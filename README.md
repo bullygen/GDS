@@ -62,7 +62,6 @@ cmake --install build --prefix "$PWD/build/install"
 - [Математическая постановка и алгоритмы](docs/algorithms.md).
 - [Интерфейс и семантика данных](docs/api.md).
 - [Внешние длительности и физическая проверка](docs/external_durations.md).
-- [Соответствие исходным материалам и перенос прежнего кода](docs/sources_and_migration.md).
 - [Последовательный курс примеров](tutorials/README.md).
 - [Проверки и область подтверждённой работоспособности](docs/validation.md).
 
