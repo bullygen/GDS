@@ -39,3 +39,14 @@ jobs:
       - run: python -m pip install build
       - run: python -m build
       - run: python tests/check_distribution.py
+  hackathon:
+    name: Планировщик Cosmo B и физика C++
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r hackathon/solver/requirements.txt
+      - run: python hackathon/solver/run.py build
+      - run: python -m pytest hackathon/solver/test_solver.py -q

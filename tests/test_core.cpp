@@ -16,6 +16,15 @@ int main() {
         auto queens = gds::GDSNetwork::make_n_queens(8);
         const auto solved = queens.run(100000);
         check(solved.satisfied && queens.count_conflicts() == 0, "Восемь ферзей не решены.");
+        gds::GDSNetwork bulk(2, {2, 2}), scalar(2, {2, 2});
+        const std::vector<double> biases{0.1, -4., 2., -0.3};
+        bulk.set_unary_biases(biases);
+        for (int i = 0; i < 4; ++i) scalar.set_unary_bias(i / 2, i % 2, biases[i]);
+        bulk.set_assignment({1, 0}); scalar.set_assignment({1, 0});
+        check(bulk.get_inputs() == scalar.get_inputs(), "Пакетные сдвиги отличаются от одиночных.");
+        bool rejected = false;
+        try { bulk.set_unary_biases({1.}); } catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected && bulk.get_inputs() == scalar.get_inputs(), "Неверные сдвиги повредили сеть.");
         check(gds::duration_slots(1.01, 1) == 2, "Нарушено округление длительности.");
         auto problem = gds::make_jssp(2, 8, {{{0, 2}, {1, 2}}, {{1, 2}, {0, 2}}}).compile();
         gds::SolverOptions options; options.iterations = 2000;

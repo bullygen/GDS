@@ -123,6 +123,7 @@ void bind_network(py::module_& m) {
         .def("clear_weighted_pairs", &GDSNetwork::clear_weighted_pairs)
         .def("finalize_weights", &GDSNetwork::finalize_weights)
         .def("set_unary_bias", &GDSNetwork::set_unary_bias)
+        .def("set_unary_biases", &GDSNetwork::set_unary_biases)
         .def("get_unary_bias", &GDSNetwork::get_unary_bias)
         .def("add_nogood", &GDSNetwork::add_nogood)
         .def("step", &GDSNetwork::step)

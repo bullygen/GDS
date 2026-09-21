@@ -123,6 +123,8 @@ public:
 
     /** Задаёт индивидуальную добавку к входу нейрона. */
     void set_unary_bias(int variable, int value, double bias);
+    /** Устанавливает все сдвиги за один пересчёт входов, в плоском порядке нейронов. */
+    void set_unary_biases(const std::vector<double>& biases);
     /** Возвращает индивидуальную добавку к входу нейрона. */
     double get_unary_bias(int variable, int value) const;
     /** Запрещает полное назначение после независимой проверки сложного ограничения. */

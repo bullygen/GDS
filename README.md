@@ -64,6 +64,7 @@ cmake --install build --prefix "$PWD/build/install"
 - [Внешние длительности и физическая проверка](docs/external_durations.md).
 - [Последовательный курс примеров](tutorials/README.md).
 - [Проверки и область подтверждённой работоспособности](docs/validation.md).
+- [Планировщик хакатона Cosmo B: физика C++, GDE3, события и отчёты](hackathon/solver/README.md).
 
 Расчётная часть находится в `include/gds` и `src`, привязки — в `bindings`.
 Пакет `gds` только экспортирует C++-интерфейс. Отдельный необязательный пакет

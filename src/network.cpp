@@ -256,6 +256,13 @@ void GDSNetwork::set_unary_bias(int variable, int value, double bias) {
     unary_bias_[flatten(variable, value)] = bias;
     recompute_inputs();
 }
+void GDSNetwork::set_unary_biases(const std::vector<double>& biases) {
+    if (biases.size() != unary_bias_.size()) throw std::invalid_argument("Неверное число сдвигов.");
+    for (double bias : biases)
+        if (!std::isfinite(bias)) throw std::invalid_argument("Сдвиг должен быть конечным.");
+    unary_bias_ = biases;
+    recompute_inputs();
+}
 /** Возвращает сдвиг указанного нейрона. */
 double GDSNetwork::get_unary_bias(int variable, int value) const { return unary_bias_[flatten(variable, value)]; }
 /** Добавляет запрет целого назначения, не запрещая его допустимые подмножества. */
