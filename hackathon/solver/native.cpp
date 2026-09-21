@@ -36,7 +36,7 @@ struct Evaluation {
 
 class CompiledNetwork {
     int n, horizon, start, valid, parallel;
-    double reserve, efficiency_in, efficiency_out, decay, gain, heater_below;
+    double reserve, critical, efficiency_in, efficiency_out, decay, gain, heater_below;
     double temp_min, temp_max, charge_min, charge_max;
     std::vector<Satellite> sats;
     std::vector<Job> jobs;
@@ -53,7 +53,10 @@ class CompiledNetwork {
         std::vector<double> energy, temp;
         std::vector<int> ages, last_step(jobs.size(), -2), last_sat(jobs.size(), -1);
         std::vector<int> work_count(jobs.size(), 0);
+        std::vector<int> last_energy_job(n, -1);
         for (const auto& s : sats) { energy.push_back(s.energy); temp.push_back(s.temp); ages.push_back(s.age); }
+        for (const auto& s : sats)
+            if (s.energy < s.capacity * critical / 100. - 1e-9) ++out.violations[2];
         for (std::size_t j = 0; j < jobs.size(); ++j) {
             out.remaining.push_back(jobs[j].remaining);
             out.completed.push_back(jobs[j].completed);
@@ -109,14 +112,23 @@ class CompiledNetwork {
                 };
                 auto next = transition(power);
                 if (code) {
-                    if (energy[s] < sat.capacity * reserve / 100. - 1e-9
-                        || next.first < sat.capacity * reserve / 100. - 1e-9) fail(2);
+                    const bool continuing = code >= 2 && last_step[j] == t - 1 && last_sat[j] == s;
+                    if (!continuing && energy[s] < sat.capacity * reserve / 100. - 1e-9) fail(2);
                     if (temp[s] < temp_min || temp[s] > temp_max || next.second < temp_min || next.second > temp_max) fail(3);
                 }
                 if (code >= 2 && okay) {
                     if (used[j] || (jobs[j].kind == 2 && downlinks >= parallel)) fail(1);
                 }
                 if (!okay) { next = transition(0.); code = 0; }
+                // Глобальный порог действует также при простое и отказе аппарата.
+                // Проверяем raw energy до clipping; внутри слота энергия монотонна.
+                if (energy[s] < sat.capacity * critical / 100. - 1e-9
+                    || next.first < sat.capacity * critical / 100. - 1e-9) {
+                    ++out.violations[2];
+                    if (out.first_bad_job < 0)
+                        out.first_bad_job = code >= 2 ? j : last_energy_job[s];
+                }
+                if (code >= 2) last_energy_job[s] = j;
                 energy[s] = std::clamp(next.first, 0., sat.capacity);
                 temp[s] = next.second;
                 ages[s] = code == 1 ? 0 : ages[s] + 1;
@@ -144,6 +156,7 @@ public:
         auto model = scenario["model"].cast<py::dict>();
         valid = model["calibration_valid_steps"].cast<int>(); parallel = model["downlink_parallel_limit"].cast<int>();
         reserve = model["reserve_soc_pct"].cast<double>();
+        critical = model["critical_soc_pct"].cast<double>();
         efficiency_in = model["charge_efficiency"].cast<double>(); efficiency_out = model["discharge_efficiency"].cast<double>();
         decay = std::exp(-300. / model["thermal_tau_s"].cast<double>());
         gain = model["thermal_gain_c_per_w"].cast<double>(); heater_below = model["heater_below_c"].cast<double>();
@@ -155,6 +168,8 @@ public:
             Satellite sat; sat.id = v["id"].cast<std::string>();
             auto state = states[py::str(sat.id)].cast<py::dict>();
             sat.capacity = v["capacity_wh"].cast<double>(); sat.energy = state["energy_wh"].cast<double>();
+            if (sat.energy < sat.capacity * critical / 100. - 1e-9)
+                throw std::invalid_argument("Initial state below critical SOC floor: " + sat.id);
             sat.temp = state["temp_c"].cast<double>(); sat.age = state["calibration_age_steps"].cast<int>();
             sat.base = v["base_w"].cast<double>(); sat.heater = v["heater_w"].cast<double>();
             sat.calibration = v["calibration_w"].cast<double>(); sat.downlink = v["downlink_w"].cast<double>();
@@ -197,7 +212,7 @@ public:
             auto e = simulate(baseline, false);
             if (!e.total()) break;
             int bad = e.first_bad_job;
-            if (bad < 0) throw std::runtime_error("Invalid continuation baseline");
+            if (bad < 0) throw std::invalid_argument("No admissible idle baseline: critical SOC floor violated");
             for (auto& code : baseline) if (code == bad + 2) code = 0;
             abandoned.push_back(jobs[bad].id);
         }

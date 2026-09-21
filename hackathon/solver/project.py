@@ -13,6 +13,59 @@ from . import __version__
 from .engine import Network, Options, choose, optimize
 
 
+def energy_policy(scenario):
+    return {"id": "critical_always_reserve_block_start_v1", "comparison": ">=",
+            "critical_soc_pct": scenario["model"]["critical_soc_pct"],
+            "reserve_soc_pct": scenario["model"]["reserve_soc_pct"],
+            "absolute_tolerance_wh": 1e-9,
+            "critical_scope": "initial state and both endpoints of every slot; raw energy before clipping",
+            "reserve_scope": "start of calibration or first slot of a contiguous job on the same satellite"}
+
+
+def audit_energy_step(env, actions=None):
+    """Независимый контроль неокруглённых состояний исходной Python-модели."""
+    for sid, sat in env.sats.items():
+        energy = env.state[sid]["energy_wh"]
+        critical = sat["capacity_wh"] * env.s["model"]["critical_soc_pct"] / 100
+        if energy < critical - 1e-9:
+            raise ValueError(f"Critical SOC floor violated: {sid}, boundary {env.k}")
+        if actions is None:
+            continue
+        action = actions.get(sid, {"action": "idle"})
+        active = action["action"] != "idle"
+        power = (sat["calibration_w"] if action["action"] == "calibrate" else
+                 sat[env.jobs[action["job_id"]]["kind"] + "_w"] if active else 0.)
+        raw, _, _, _ = env.transition(sid, power)
+        if raw < critical - 1e-9:
+            raise ValueError(f"Critical SOC floor violated: {sid}, slot {env.k}")
+        continuation = action["action"] == "job" and any(
+            row["step"] == env.k - 1 and row["satellite_id"] == sid
+            and row["executed"] == "job" and row["requested"]["job_id"] == action["job_id"]
+            for row in env.trace[-len(env.sats):])
+        if active and not continuation and energy < sat["capacity_wh"] * env.s["model"]["reserve_soc_pct"] / 100 - 1e-9:
+            raise ValueError(f"Start reserve violated: {sid}, slot {env.k}")
+
+
+def audit_energy(session):
+    # Повторение нужно только для независимой проверки результатов: trace
+    # округлён до 6 знаков и не годится для проверки точного равенства порогу.
+    replay = Session(session.initial_scenario)
+    events, commands = {}, {}
+    for event in session.events:
+        events.setdefault(event["at_step"], []).append(event)
+    for command in session.commands:
+        commands.setdefault(command["step"], {})[command["satellite_id"]] = {
+            k: v for k, v in command.items() if k not in ("step", "satellite_id")}
+    while replay.env.k < session.env.k:
+        k = replay.env.k
+        for event in events.get(k, []):
+            replay.apply_event(event)
+        actions = commands.get(k, {})
+        audit_energy_step(replay.env, actions)
+        replay.advance(actions)
+    audit_energy_step(replay.env)
+
+
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +100,7 @@ def verify_record(record):
     if session.summary()["blocked_command_count"]:
         raise ValueError("Result contains rejected commands")
     audit_continuity(session)
+    audit_energy(session)
     return session
 
 
@@ -59,13 +113,16 @@ def verify_candidate(session, network, member):
     energy, temp, ages = [], [], []
 
     def capture():
+        audit_energy_step(replay.env)
         energy.append([replay.env.state[s]["energy_wh"] for s in network.satellite_ids])
         temp.append([replay.env.state[s]["temp_c"] for s in network.satellite_ids])
         ages.append([replay.env.state[s]["calibration_age_steps"] for s in network.satellite_ids])
 
     capture()
     while replay.env.k < network.horizon:
-        replay.advance(network.commands(member["plan"], replay.env.k))
+        actions = network.commands(member["plan"], replay.env.k)
+        audit_energy_step(replay.env, actions)
+        replay.advance(actions)
         capture()
     for key, reference in (("energy_wh", energy), ("temp_c", temp), ("calibration_age_steps", ages)):
         if not np.allclose(np.array(reference).T.ravel(), native[key], atol=1e-10, rtol=1e-12):
@@ -80,6 +137,7 @@ def verify_candidate(session, network, member):
         raise ValueError("Candidate priority objective mismatch")
     audit_continuity(replay)
     return {"U": 0, "blocked_commands": 0, "full_horizon_physics_parity": True,
+            "critical_floor_all_slots": True, "reserve_at_block_start": True,
             "contiguous_jobs": True, "revenue_usd": summary["revenue_usd"]}
 
 
@@ -154,6 +212,7 @@ def export_network(directory, network, selected, result, session):
                         "downlink_parallel_limit": session.env.s["model"]["downlink_parallel_limit"],
                         "same_satellite_pair_penalty": 1,
                         "dynamic_guards": "exact full editable horizon replay after every proposal",
+                        "energy_policy": energy_policy(session.env.s),
                         "compiled_model_hash": digest(session.env.s), "prefix_commands_hash": digest(session.commands),
                         "state_at_boundary": session.observation(),
                         "grid_gdsw_scope": "one-hot rows and static biases only; dynamic guards require native builder"})
@@ -191,6 +250,7 @@ class ScheduleProject:
                 raise ValueError("Provide a scenario, or a parent result with an optional branch step")
             self.session = Session(scenario)
         self.session.run_metadata = metadata
+        metadata["energy_policy"] = energy_policy(self.session.env.s)
         self.history = metric_history(self.session)
         self.versions = []
 

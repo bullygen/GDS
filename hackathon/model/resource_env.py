@@ -191,7 +191,13 @@ class Environment:
         else:
             return (False, 'unknown_action', 0)
         en, temp, _, _ = self.transition(sid, power)
-        if st['energy_wh'] < v['capacity_wh'] * m['reserve_soc_pct'] / 100 - 1e-09 or en < v['capacity_wh'] * m['reserve_soc_pct'] / 100 - 1e-09:
+        # Reserve is an admission threshold for a whole contiguous job block.
+        # Interrupted or migrated execution is a new start; calibration lasts one slot.
+        continuing = kind == 'job' and any(
+            row['step'] == self.k - 1 and row['satellite_id'] == sid
+            and row['executed'] == 'job' and row['requested']['job_id'] == j['id']
+            for row in self.trace[-len(self.sats):])
+        if not continuing and st['energy_wh'] < v['capacity_wh'] * m['reserve_soc_pct'] / 100 - 1e-09:
             return (False, 'energy_reserve', 0)
         if not (m['payload_min_c'] <= st['temp_c'] <= m['payload_max_c'] and m['payload_min_c'] <= temp <= m['payload_max_c']):
             return (False, 'thermal_limit', 0)

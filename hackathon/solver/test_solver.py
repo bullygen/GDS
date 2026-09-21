@@ -50,9 +50,9 @@ def test_cpp_full_horizon_parity_on_supplied_scenarios(name):
 
 @pytest.mark.parametrize("initial,solar,payload,temperature", [
     (30., 20., 20., 15.),  # Равенство резерву до и после операции допустимо.
-    (30., 0., 20., 15.),   # При положительном заряде действие всё же нарушает резерв.
+    (30., 0., 20., 15.),   # После начала разрешено уйти ниже reserve, сохранив critical.
     (80., 100., 0., -2.),  # Вне диапазона зарядки избыток энергии не накапливается.
-    (0., 0., 20., 15.),
+    (20., 0., 20., 15.),  # Простой на critical допустим, действие ниже reserve — нет.
     (80., 0., 0., 45.),
 ])
 def test_physics_boundaries_against_reference(initial, solar, payload, temperature):
@@ -69,6 +69,168 @@ def test_physics_boundaries_against_reference(initial, solar, payload, temperatu
     assert result["energy_wh"][-1] == pytest.approx(session.env.state["S01"]["energy_wh"], abs=1e-10)
     assert result["temp_c"][-1] == pytest.approx(session.env.state["S01"]["temp_c"], abs=1e-10)
     assert (result["U"] == 0) == (session.summary()["blocked_command_count"] == 0)
+
+
+@pytest.mark.parametrize("initial", [20., 20. - 1e-6])
+def test_critical_floor_includes_initial_boundary_even_if_charging(initial):
+    scenario = small(steps=1, satellites=1)
+    scenario["satellites"][0]["initial_soc_pct"] = initial
+    scenario["environment"]["S01"]["solar_w"] = [120.]
+    session = Session(scenario)
+    if initial < 20:
+        with pytest.raises(ValueError, match="Initial state below critical"):
+            Network(session)
+        session.advance({})
+        with pytest.raises(ValueError, match="Critical SOC floor"):
+            verify_record(session.result())
+    else:
+        assert Network(session).native.inspect([0])["U"] == 0
+
+
+@pytest.mark.parametrize("initial", [25., 25. - 1e-6])
+def test_idle_terminal_floor_and_unavailable_satellite(initial):
+    scenario = small(steps=1, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=initial, base_w=60.)
+    scenario["failures"] = [{"satellite_id": "S01", "start_step": 0, "end_step": 1}]
+    session = Session(scenario)
+    if initial < 25:
+        with pytest.raises(ValueError, match="No admissible idle baseline"):
+            Network(session)
+    else:
+        result = Network(session).native.inspect([0])
+        assert result["U"] == 0 and result["energy_wh"][-1] == 20.
+    session.advance({})
+    if initial < 25:
+        with pytest.raises(ValueError, match="Critical SOC floor"):
+            verify_record(session.result())
+        with pytest.raises(ValueError, match="Initial state below critical"):
+            Network(session)  # Проверяется и нулевой остаточный горизонт.
+    else:
+        verify_record(session.result())
+        assert Network(session).native.inspect([0])["U"] == 0
+
+
+@pytest.mark.parametrize("action", ["calibrate", "downlink", "relay"])
+@pytest.mark.parametrize("initial", [30., 30. - 1e-6])
+def test_reserve_only_at_start_of_each_action_with_inclusive_threshold(action, initial):
+    scenario = small(steps=1, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=initial, calibration_w=60., downlink_w=60., relay_w=60.)
+    if action != "calibrate":
+        scenario["jobs"] = [job(work=1, deadline=1, kind=action)]
+    code = 1 if action == "calibrate" else 2
+    result = Network(Session(scenario)).native.inspect([code])
+    assert (result["U"] == 0) == (initial == 30.)
+    assert result["energy_wh"][-1] == pytest.approx(25. if initial == 30. else initial)
+
+
+@pytest.mark.parametrize("kind", ["downlink", "relay"])
+def test_job_continues_below_reserve_including_replanning_boundary(kind):
+    scenario = small(steps=2, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=30., downlink_w=60., relay_w=60.)
+    scenario["jobs"] = [job(work=2, deadline=2, kind=kind)]
+    session = Session(scenario)
+    network = Network(session)
+    result = network.native.inspect([2, 2])
+    assert result["U"] == 0 and result["energy_wh"] == [30., 25., 20.]
+    member = network.decode(np.array([0., 0., 1.]), 8)
+    assert member["jobs_completed"] == 1
+    assert verify_candidate(session, network, member)["reserve_at_block_start"]
+    session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    resumed = Network(session)
+    member = resumed.decode(np.array([0., 0., 1.]), 8)
+    assert member["jobs_completed"] == 1
+    verify_candidate(session, resumed, member)
+    session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    verify_record(session.result())
+
+
+@pytest.mark.parametrize("next_action", ["calibrate", "new_job", "interrupted_job"])
+def test_below_reserve_cannot_start_new_or_interrupted_action(next_action):
+    scenario = small(steps=3, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=30., relay_w=60.)
+    scenario["jobs"] = [job(work=2 if next_action == "interrupted_job" else 1, deadline=3)]
+    if next_action == "new_job":
+        scenario["jobs"].append(job("J2", work=1, deadline=3))
+    code = {"calibrate": 1, "new_job": 3, "interrupted_job": 2}[next_action]
+    result = Network(Session(scenario)).native.inspect([2, 0, code])
+    assert result["violations"][2] > 0
+    session = Session(scenario)
+    session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    session.advance({})
+    action = {"action": "calibrate"} if code == 1 else {"action": "job", "job_id": "J2" if code == 3 else "J1"}
+    assert session.advance({"S01": action})[0]["reason"] == "energy_reserve"
+
+
+def test_continuing_job_cannot_cross_critical_floor():
+    scenario = small(steps=3, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=30., relay_w=60.)
+    scenario["jobs"] = [job(work=3, deadline=3)]
+    session = Session(scenario)
+    network = Network(session)
+    result = network.native.inspect([2, 2, 2])
+    assert result["energy_wh"] == [30., 25., 20., 15.]
+    assert result["violations"][2] > 0
+    assert network.decode(np.array([0., 0., 1.]), 8)["jobs_completed"] == 0
+    for _ in range(3):
+        session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    with pytest.raises(ValueError, match="Critical SOC floor"):
+        verify_record(session.result())
+
+
+@pytest.mark.parametrize("reserve,critical,completed", [(40., 10., 1), (41., 10., 0), (40., 11., 0)])
+def test_energy_thresholds_come_from_scenario_model(reserve, critical, completed):
+    scenario = small(steps=3, satellites=1)
+    scenario["model"].update(reserve_soc_pct=reserve, critical_soc_pct=critical, discharge_efficiency=1.)
+    scenario["satellites"][0].update(capacity_wh=200., initial_soc_pct=40., relay_w=240.)
+    scenario["jobs"] = [job(work=3, deadline=3)]
+    session = Session(scenario)
+    network = Network(session)
+    member = network.decode(np.array([0., 0., 1.]), 8)
+    assert member["jobs_completed"] == completed
+    verify_candidate(session, network, member)
+    if completed:
+        assert network.native.inspect(member["plan"])["energy_wh"] == [80., 60., 40., 20.]
+
+
+def test_action_rejected_for_delayed_critical_deficit_during_idle():
+    scenario = small(steps=4, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=50., base_w=60., relay_w=132.)
+    scenario["jobs"] = [job(work=1, deadline=1)]
+    session = Session(scenario)
+    network = Network(session)
+    invalid = network.native.inspect([2, 0, 0, 0])
+    assert invalid["energy_wh"][1] == 34.  # Всё действие выше reserve=30.
+    assert invalid["energy_wh"][-1] == 19.  # Нарушение лишь в будущем простое.
+    assert invalid["violations"][2] > 0
+    member = network.decode(np.array([0., 0., 1.]), 8)
+    assert member["jobs_completed"] == 0 and member["U"] == 0
+    assert verify_candidate(session, network, member)["critical_floor_all_slots"]
+    session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    for _ in range(3):
+        session.advance({})
+    assert session.summary()["blocked_command_count"] == 0  # Старый oracle пропускает.
+    with pytest.raises(ValueError, match="Critical SOC floor"):
+        verify_record(session.result())
+
+
+def test_running_job_abandoned_if_continuation_causes_later_idle_deficit():
+    scenario = small(steps=7, satellites=1)
+    scenario["model"]["discharge_efficiency"] = 1.
+    scenario["satellites"][0].update(initial_soc_pct=64., base_w=60., relay_w=60.)
+    scenario["jobs"] = [job(work=2, deadline=2)]
+    session = Session(scenario)
+    session.advance({"S01": {"action": "job", "job_id": "J1"}})
+    network = Network(session)
+    member = network.decode(np.array([0., 0., 1.]), 8)
+    assert member["U"] == 0 and member["jobs_completed"] == 0
+    assert network.native.inspect(member["plan"])["energy_wh"][-1] == 24.
+    verify_candidate(session, network, member)
 
 
 def test_release_deadline_inclusive_and_calibration_expiry():

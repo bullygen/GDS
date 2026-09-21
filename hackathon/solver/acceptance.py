@@ -10,7 +10,7 @@ if __package__ in (None, ""):
 
 from hackathon.model.resource_env import load
 from hackathon.solver.engine import Options
-from hackathon.solver.project import ScheduleProject, metric_history, verify_record, write_json
+from hackathon.solver.project import ScheduleProject, energy_policy, metric_history, verify_record, write_json
 
 
 def inspect_network_artifacts(output):
@@ -23,6 +23,8 @@ def inspect_network_artifacts(output):
         session = verify_record(prefix)
         network = Network(session)
         spec = json.loads((directory / "network.json").read_text())
+        if spec.get("energy_policy") != energy_policy(session.env.s):
+            raise AssertionError("Saved network is missing the current energy policy")
         forecasts = json.loads((directory / "pareto_front.json").read_text())["points"]
         selected_index = next(i for i, member in enumerate(forecasts) if member["selected"])
         selected = forecasts[selected_index]
@@ -94,7 +96,9 @@ def inspect_result(output, result, plots):
                         raise AssertionError("Missing Pareto generation image")
     networks = inspect_network_artifacts(output)
     return {"summary": result["summary"], "metric_boundaries": len(history), "network_artifacts_verified": networks,
-            "versions": len(result["run_metadata"]["versions"]), "verified": True, "plots": plots}
+            "versions": len(result["run_metadata"]["versions"]), "verified": True, "plots": plots,
+            "energy_policy": energy_policy(replay.env.s),
+            "critical_floor_all_slots": True, "reserve_at_block_start": True}
 
 
 def main():

@@ -8,7 +8,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from hackathon.solver.project import verify_record
+from hackathon.solver.project import energy_policy, verify_record
 
 
 SCENARIOS = ("P01_intro", "P02_shift", "P03_energy", "P04_demand")
@@ -45,6 +45,9 @@ def load_runs(directory, mode):
         path = directory / f"{name}_{mode}"
         record = read_json(path / "result.json")
         verify_record(record)
+        policy = energy_policy(record["initial_scenario"])
+        if record["run_metadata"].get("energy_policy") != policy:
+            raise ValueError(f"Rerun required with current energy rules: {path}")
         history = read_json(path / "metrics.json")
         metric = history[-1]
         if record["initial_scenario"]["meta"]["id"] != name or record["run_metadata"]["objective"] != mode:
@@ -78,7 +81,7 @@ def load_runs(directory, mode):
         covered = {key for key, _, _ in METRICS} | {"terminal_soc_pct", "utilization"}
         if set(metric) - covered:
             raise ValueError(f"Metrics without a table row: {set(metric) - covered}")
-        runs.append({"name": name, "values": {**metric, **extra}, "satellite_ids": satellite_ids,
+        runs.append({"name": name, "values": {**metric, **extra}, "satellite_ids": satellite_ids, "energy_policy": policy,
                      "parameters": record["run_metadata"]["parameters"], "run_id": record["run_metadata"]["run_id"]})
     return runs
 
@@ -140,7 +143,7 @@ def make_pdf(path, runs, mode):
             "Приоритет 3, % = выполнено в срок / все приоритетные задания с наступившим сроком × 100. Здесь все сроки уже наступили.",
             "Планирование: построение сети, GDE3, независимая проверка и сохранение версии. Оценка кандидатов — часть этого времени.",
             "Полный прогон: сохранённое измерение вместе с исполнением, отчётами и проверками. Дополнительные PDF в него не входят.",
-            "Заряд каждого аппарата и его загрузка приведены на следующих страницах. Значения округлены только для отображения.",
+            "Проверено: critical — всегда; reserve — только перед калибровкой и первым слотом задания. Заряд и загрузка аппаратов — далее.",
         ]
         for y, note in zip((0.172, 0.143, 0.114, 0.085), notes):
             fig.text(0.055, y, note, fontsize=7.8, color="#455c6a")
@@ -165,6 +168,10 @@ def make_pdf(path, runs, mode):
                 table(fig.add_axes([left, 0.815 - height, 0.42, height]), rows,
                       ["Аппарат", "Конечный заряд, %", "Загрузка заданиями, %"], [0.18, 0.39, 0.43], font=9)
             fig.text(0.055, 0.117, "Конечный заряд: terminal_soc_pct. Загрузка: utilization × 100 — доля выполненных шагов заданий за весь прогон.", fontsize=8, color="#455c6a")
+            policy = run["energy_policy"]
+            fig.text(0.055, 0.145,
+                     f"Проверено: заряд всегда ≥ {policy['critical_soc_pct']:g}%; перед началом калибровки или задания ≥ {policy['reserve_soc_pct']:g}%.",
+                     fontsize=8.5, color=blue)
             fig.text(0.055, 0.09, f"Источник: {run['name']}_{mode}/result.json, metrics.json, версии и acceptance.json.", fontsize=8, color="#455c6a")
             fig.text(0.055, 0.065, f"Идентификатор прогона: {run['run_id']}", fontsize=7, color="#536777")
             pdf.savefig(fig)

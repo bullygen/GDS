@@ -13,7 +13,8 @@ import numpy as np
 from hackathon.model.operations import Session
 from hackathon.model.resource_env import load
 from hackathon.solver.engine import Network
-from hackathon.solver.project import verify_candidate, write_json
+from hackathon.solver import __version__
+from hackathon.solver.project import energy_policy, verify_candidate, write_json
 
 
 def benchmark(scenario, *, repeats=3, attempts=4):
@@ -42,6 +43,7 @@ def benchmark(scenario, *, repeats=3, attempts=4):
             "replay_ratio": reference_seconds / native_seconds,
             "completed_jobs": member["jobs_completed"], "full_horizon_parity": True,
             "parameters": {"repeats": repeats, "attempts": attempts, "seed": 42},
+            "algorithm_version": __version__, "energy_policy": energy_policy(scenario),
             "scope": "native inspect includes boundary arrays; reference Session includes trace and validation; not an isolated arithmetic benchmark"}
 
 
