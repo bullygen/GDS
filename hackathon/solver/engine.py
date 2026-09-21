@@ -1,5 +1,6 @@
 """Построение блочной GDS-сети и внешняя многокритериальная эволюция GDE3."""
 from dataclasses import asdict, dataclass
+import copy
 import time
 
 import numpy as np
@@ -124,7 +125,7 @@ def truncate(members, size, objective):
     return chosen
 
 
-def optimize(network, objective, options, progress=print):
+def optimize(network, objective, options, progress=print, on_generation=None):
     """GDE3: DE/rand/1/bin, попарный отбор, сортировка фронтов и crowding.
 
     Геном задаёт порядок блочных предложений, начальную пробу размещения и
@@ -135,7 +136,7 @@ def optimize(network, objective, options, progress=print):
     objectives({"critical_completed": 0, "revenue_usd": 0}, objective)
     rng = np.random.default_rng(options.seed)
     dimensions = 3 * len(network.jobs)
-    history, archive = [], []
+    history, archive, generation_history = [], [], []
 
     def evaluate(genome, generation):
         member = network.decode(genome, options.attempts)
@@ -153,6 +154,22 @@ def optimize(network, objective, options, progress=print):
             unique.setdefault((member["critical_completed"], member["revenue_usd"]), member)
         archive = front(list(unique.values()))
 
+    def record_generation(generation):
+        def point(member):
+            return {k: member[k] for k in ("evaluation", "critical_completed", "critical_total", "critical_pct", "revenue_usd")}
+
+        def maxima(members):
+            return {key: max((m[key] for m in members if m[key] is not None), default=None)
+                    for key in ("critical_completed", "critical_pct", "revenue_usd")}
+
+        snapshot = {"generation": generation, "evaluations": len(history),
+                    "best_so_far": maxima(archive), "population_best": maxima(population),
+                    "pareto_front": [point(m) for m in archive],
+                    "population_front": [point(m) for m in front(population)]}
+        generation_history.append(snapshot)
+        if on_generation is not None:
+            on_generation(copy.deepcopy(snapshot))
+
     population = []
     for i in range(options.population):
         genes = rng.random(dimensions)
@@ -168,6 +185,7 @@ def optimize(network, objective, options, progress=print):
             genes[2::3] = 1.0
         population.append(evaluate(genes, 0))
     archive_add(population)
+    record_generation(0)
     progress(f"  GDS: {len(population)} корректных расписаний, {len(archive)} точек фронта", flush=True)
     for generation in range(1, options.generations + 1):
         candidates = []
@@ -188,11 +206,13 @@ def optimize(network, objective, options, progress=print):
                 candidates.extend((trial, target))
         archive_add(candidates)
         population = truncate(candidates, options.population, objective)
+        record_generation(generation)
         progress(f"  GDE3 {generation}/{options.generations}: "
                  f"priority3={max(m['critical_completed'] for m in population)}, "
                  f"revenue={max(m['revenue_usd'] for m in population):.2f}, "
                  f"Pareto={len(archive)}", flush=True)
     return {"population": population, "pareto_front": archive, "history": history,
+            "generation_history": generation_history,
             "options": asdict(options), "objective": objective}
 
 

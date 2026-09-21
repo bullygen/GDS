@@ -194,16 +194,21 @@ class ScheduleProject:
         self.history = metric_history(self.session)
         self.versions = []
 
-    def replan(self, output, reason):
+    def replan(self, output, reason, *, plots=True):
         started = time.perf_counter()
         version_id = f"v{len(self.versions):03d}_step{self.session.env.k:03d}"
         print(f"{version_id}: {reason}, цель={self.objective}, известных заявок={len(self.session.env.jobs)}", flush=True)
         network = Network(self.session)
         seed = self.options.seed + self.session.env.k
-        result = optimize(network, self.objective, replace(self.options, seed=seed))
+        directory = output / "versions" / version_id
+        from .progress_reports import save_generation, export_progress
+        revenue_bound = sum(j["value_usd"] for j in network.jobs)
+        result = optimize(network, self.objective, replace(self.options, seed=seed),
+                          on_generation=lambda snapshot: save_generation(
+                              directory, snapshot, objective=self.objective,
+                              revenue_bound=revenue_bound, plots=plots))
         selected = choose(result, self.preference)
         checks = [verify_candidate(self.session, network, member) for member in result["pareto_front"]]
-        directory = output / "versions" / version_id
         export_network(directory, network, selected, result, self.session)
         forecasts = []
         for member in result["pareto_front"]:
@@ -213,7 +218,10 @@ class ScheduleProject:
             forecasts.append({**{k: member[k] for k in ("evaluation", "critical_completed", "critical_total", "critical_pct", "revenue_usd", "jobs_completed")},
                               "commands": commands, "selected": member is selected})
         write_json(directory / "pareto_front.json", {"scope": "forecast using only received events", "points": forecasts})
-        write_json(directory / "optimization.json", {"options": result["options"], "objective": self.objective, "history": result["history"]})
+        optimization = {"options": result["options"], "objective": self.objective, "history": result["history"],
+                        "generation_history": result["generation_history"]}
+        write_json(directory / "optimization.json", optimization)
+        export_progress(directory, optimization, plots=plots)
         version = {"id": version_id, "step": self.session.env.k, "reason": reason, "objective": self.objective,
                    "parent_version": self.versions[-1]["id"] if self.versions else None,
                    "prefix_commands_hash": digest(self.session.commands), "state_hash": self.session.state_digest(),
@@ -281,7 +289,7 @@ class ScheduleProject:
                 if k == stop:
                     break
                 if selected is None or reasons:
-                    network, selected = self.replan(output, ", ".join(reasons) or "initial")
+                    network, selected = self.replan(output, ", ".join(reasons) or "initial", plots=plots)
                     write_json(output / "checkpoint.json", self.session.result())
                 rows = self.session.advance(network.commands(selected["plan"], k))
                 for row in rows:

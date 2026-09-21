@@ -224,3 +224,54 @@ def test_schedule_label_keyword():
     assert not hidden.texts
     assert [text.get_text() for text in shown.texts] == ["J1"]
     plt.close("all")
+
+
+def test_generation_snapshots_record_actual_past_and_best_values():
+    class EvolvingNetwork:
+        jobs = []
+        evaluated = 0
+
+        def decode(self, genome, attempts):
+            # В первом поколении доминирующая новая точка удаляет старые.
+            scores = [(0, 10), (1, 8), (0, 9), (1, 5), (2, 12), (1, 11), (0, 3), (2, 9)]
+            c, r = scores[self.evaluated]
+            self.evaluated += 1
+            return {"genome": genome, "critical_completed": c, "critical_total": 2,
+                    "critical_pct": 50 * c, "revenue_usd": r, "jobs_completed": c,
+                    "U": 0, "proposals": 1, "accepted_blocks": 1,
+                    "guard_violations": [0] * 7, "seconds": 0}
+
+    callbacks = []
+    def observe(snapshot):
+        callbacks.append(copy.deepcopy(snapshot))
+        snapshot["pareto_front"].clear()  # Наблюдатель не должен менять историю поиска.
+
+    result = optimize(EvolvingNetwork(), "pareto", Options(4, 1, 1), progress=quiet, on_generation=observe)
+    snapshots = result["generation_history"]
+    assert snapshots == callbacks
+    assert [s["generation"] for s in snapshots] == [0, 1]
+    assert [s["evaluations"] for s in snapshots] == [4, 8]
+    assert {(p["critical_completed"], p["revenue_usd"]) for p in snapshots[0]["pareto_front"]} == {(0, 10), (1, 8)}
+    assert {(p["critical_completed"], p["revenue_usd"]) for p in snapshots[1]["pareto_front"]} == {(2, 12)}
+    for snapshot in snapshots:
+        prefix = result["history"][:snapshot["evaluations"]]
+        for key in ("critical_completed", "critical_pct", "revenue_usd"):
+            assert snapshot["best_so_far"][key] == max(row[key] for row in prefix)
+        assert all(p["evaluation"] < snapshot["evaluations"] for p in snapshot["pareto_front"])
+
+
+@pytest.mark.parametrize("mode,generations,plots", [("critical", 1, True), ("revenue", 0, True), ("pareto", 2, True), ("pareto", 1, False)])
+def test_generation_report_files(tmp_path, mode, generations, plots):
+    scenario = small(steps=2, satellites=1)
+    scenario["jobs"] = [job(work=2, deadline=2)]
+    output = tmp_path / mode
+    ScheduleProject(scenario, objective=mode, options=Options(4, generations, 1)).run(output, plots=plots)
+    directory = output / "versions/v000_step000"
+    optimization = json.loads((directory / "optimization.json").read_text())
+    history = json.loads((directory / "generation_history.json").read_text())
+    assert history == optimization["generation_history"]
+    assert len(history) == generations + 1
+    assert len(list((directory / "generations").glob("*.json"))) == generations + 1
+    assert (directory / "objective_progress.png").exists() == plots
+    assert len(list((directory / "pareto_generations").glob("*.png"))) == (generations + 1 if mode == "pareto" and plots else 0)
+    assert (directory / "generation_history.csv").is_file()

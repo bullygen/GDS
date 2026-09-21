@@ -77,9 +77,21 @@ def inspect_result(output, result, plots):
             if not (output / "figures/resources" / item["file"]).is_file():
                 raise AssertionError("Missing resource PNG")
         for version in (output / "versions").glob("*"):
-            for filename in ("pareto.png", "optimization.png"):
+            for filename in ("pareto.png", "optimization.png", "objective_progress.png"):
                 if not (version / filename).is_file():
                     raise AssertionError("Missing version figure")
+            optimization = json.loads((version / "optimization.json").read_text())
+            snapshots = optimization["generation_history"]
+            if [s["generation"] for s in snapshots] != list(range(optimization["options"]["generations"] + 1)):
+                raise AssertionError("Missing generation snapshots")
+            for snapshot in snapshots:
+                prefix = optimization["history"][:snapshot["evaluations"]]
+                for key in ("critical_completed", "revenue_usd"):
+                    if snapshot["best_so_far"][key] != max(row[key] for row in prefix):
+                        raise AssertionError("Progress curve differs from actual evaluations")
+                if optimization["objective"] == "pareto":
+                    if not (version / "pareto_generations" / f"generation_{snapshot['generation']:04d}.png").is_file():
+                        raise AssertionError("Missing Pareto generation image")
     networks = inspect_network_artifacts(output)
     return {"summary": result["summary"], "metric_boundaries": len(history), "network_artifacts_verified": networks,
             "versions": len(result["run_metadata"]["versions"]), "verified": True, "plots": plots}
